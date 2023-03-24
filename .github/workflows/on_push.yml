@@ -62,28 +62,59 @@ jobs:
           p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
           # The password used to import the PKCS12 file.
           p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
-      -
-        name: Install gon via Homebrew for code signing and app notarization
-        run: |
-          brew tap mitchellh/gon
-          brew install mitchellh/gon/gon
-      -
-        name: Sign and notarize mac binary with gon
+      - 
+        name: Codesign app bundle
+        run: /usr/bin/codesign --force -s "WakaTime" --options runtime WakaTime.app -v
+      - 
+        name: Notarize app bundle
+        # Extract the secrets we defined earlier as environment variables
         env:
-          AC_USERNAME: ${{ secrets.AC_USERNAME }}
-          AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
-        run: gon -log-level=debug -log-json ./gon.hcl
-      -
-        name: Move zip file
+          PROD_MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.AC_USERNAME }}
+          PROD_MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PROD_MACOS_NOTARIZATION_PWD: ${{ secrets.AC_PASSWORD }}
         run: |
-          mkdir ./build
-          mv ./WakaTime.zip ./build/
+          # Store the notarization credentials so that we can prevent a UI password dialog
+          # from blocking the CI
+
+          echo "Create keychain profile"
+          xcrun notarytool store-credentials "notarytool-profile" --apple-id "$PROD_MACOS_NOTARIZATION_APPLE_ID" --team-id "$PROD_MACOS_NOTARIZATION_TEAM_ID" --password "$PROD_MACOS_NOTARIZATION_PWD"
+
+          # We can't notarize an app bundle directly, but we need to compress it as an archive.
+          # Therefore, we create a zip file containing our app bundle, so that we can send it to the
+          # notarization service
+
+          echo "Creating temp notarization archive"
+          ditto -c -k --keepParent "WakaTime.app" "WakaTime.zip"
+
+          # Here we send the notarization request to the Apple's Notarization service, waiting for the result.
+          # This typically takes a few seconds inside a CI environment, but it might take more depending on the App
+          # characteristics. Visit the Notarization docs for more information and strategies on how to optimize it if
+          # you're curious
+
+          echo "Notarize app"
+          xcrun notarytool submit "WakaTime.zip" --keychain-profile "notarytool-profile" --wait
+
+          # Finally, we need to "attach the staple" to our executable, which will allow our app to be
+          # validated by macOS even when an internet connection is not available.
+          echo "Attach staple"
+          xcrun stapler staple "WakaTime.app"
+      # -
+      #   name: Move app
+      #   run: |
+      #     mkdir ./signed
+      #     mv ./WakaTime.app ./signed/
+      # - 
+      #   name: Zip app
+      #   uses: vimtor/action-zip@v1
+      #   with:
+      #     files: WakaTime.app
+      #     dest: ./signed/WakaTime.zip
       -
         name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
           name: app
-          path: build/
+          path: WakaTime.zip
 
   release:
     name: Release
@@ -112,7 +143,7 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: app
-          path: build/
+          path: signed/
       -
         name: Prepare release assets
         run: ./bin/prepare_assets.sh
@@ -121,7 +152,7 @@ jobs:
         uses: softprops/action-gh-release@master
         with:
           # name: ${GITHUB_REF##*/}
-          # tag_name: ${GITHUB_REF##*/}
+          # tag_name: ${GITHUB_REF##*/}``
           name: v0.1.0-test.1
           tag_name: v0.1.0-test.1
           # body: "## Changelog\n${{ steps.changelog.outputs.changelog }}"

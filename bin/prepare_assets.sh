@@ -16,23 +16,23 @@ fi
 
 # handle apple binaries
 echo "Unzipping..."
-unzip ./build/WakaTime.zip
+unzip ./signed/WakaTime.zip
 
 echo "Adding permissions..."
-chmod -R 750 ./build/Contents/
+chmod -R 750 ./signed/Contents/
 
 echo "Creating ./WakaTime.app/Contents"
 mkdir -p ./WakaTime.app/Contents
 
 echo "Moving files..."
-mv -v ./build/Contents/* ./WakaTime.app/Contents/
+mv -v ./signed/Contents/* ./WakaTime.app/Contents/
 
 echo "Zipping..."
 zip -r ./release/WakaTime.zip ./WakaTime.app
 
-# calculate checksums
-for file in  ./release/*; do
-	checksum=$(sha256sum "${file}" | cut -d' ' -f1)
-	filename=$(echo "${file}" | rev | cut -d/ -f1 | rev)
-	echo "${checksum} ${filename}" >> ./release/checksums_sha256.txt
-done
+# # calculate checksums
+# for file in  ./release/*; do
+# 	checksum=$(sha256sum "${file}" | cut -d' ' -f1)
+# 	filename=$(echo "${file}" | rev | cut -d/ -f1 | rev)
+# 	echo "${checksum} ${filename}" >> ./release/checksums_sha256.txt
+# done
